@@ -28,16 +28,24 @@ public class CapitalGainTaxService {
         final var buyTxs = request.buyTransactions();
 
         // sort by date
-        buyTxs.sort(Comparator.comparing((tx) -> DateUtil.convertToDate(tx.date())));
+        buyTxs.sort(Comparator.comparing(tx -> DateUtil.convertToDate(tx.date())));
 
         final var buyTxsForTax = matchBuyTransactionForTax(sellTx, buyTxs);
 
         final var buyTaxTransactions = buyTxsForTax.stream()
-                .map(buyTx -> new TaxTransaction(buyTx.date(), exchangeRateService.getRsdExchangeRate(currency, buyTx.date()).get() * buyTx.numberOfShares() * buyTx.pricePerShare()))
+                .map(buyTx -> {
+                    final var rate = exchangeRateService.getRsdExchangeRate(currency, buyTx.date()).get();
+                    return new TaxTransaction(buyTx.date(), rate, rate * buyTx.numberOfShares() * buyTx.pricePerShare());
+                })
                 .toList();
-        final var sellTaxTransaction = new TaxTransaction(sellTx.date(), exchangeRateService.getRsdExchangeRate(currency, sellTx.date()).get() * sellTx.numberOfShares() * sellTx.pricePerShare());
+        final var sellRate = exchangeRateService.getRsdExchangeRate(currency, sellTx.date()).get();
+        final var sellTaxTransaction = new TaxTransaction(sellTx.date(), sellRate, sellRate * sellTx.numberOfShares() * sellTx.pricePerShare());
 
-        return new CapitalGainTaxResponse(sellTaxTransaction, buyTaxTransactions, Collections.emptyList());
+        final var totalBought = buyTaxTransactions.stream().mapToDouble(TaxTransaction::amount).sum();
+        final var totalDifference = sellTaxTransaction.amount() - totalBought;
+        final var taxToPay = totalDifference * 0.15;
+
+        return new CapitalGainTaxResponse(sellTaxTransaction, buyTaxTransactions, Collections.emptyList(), totalDifference, taxToPay);
     }
 
     private List<InvestmentTransaction> matchBuyTransactionForTax(InvestmentTransaction sellTx, List<InvestmentTransaction> buyTxs) {
